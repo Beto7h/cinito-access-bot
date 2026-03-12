@@ -12,11 +12,11 @@ GRUPO_ID = int(os.getenv('GRUPO_ID'))
 BOT_USERNAME = os.getenv('BOT_USERNAME')
 CANAL_TUTORIAL = os.getenv('CANAL_TUTORIAL', 'https://t.me/')
 
-# ⚠️ TU ID PARA EL COMANDO /ventas:
+# ⚠️ TU ID PARA EL COMANDO /ventas Y AVISOS:
 ADMIN_ID = 7523334989 
 
 bot = telebot.TeleBot(TOKEN)
-db_temporal = {} # {user_id: {'link': url, 'expira': timestamp, 'tipo': 'free'/'vip'}}
+db_temporal = {} # Memoria viva del bot
 stats = {"estrellas_ganadas": 0, "ventas_totales": 0}
 
 # --- SERVIDOR PARA KOYEB ---
@@ -30,6 +30,7 @@ def run_mock_server():
     server.serve_forever()
 
 def limpiar_db():
+    global db_temporal
     while True:
         ahora = time.time()
         te_fuiste = [uid for uid, data in db_temporal.items() if ahora > data['expira']]
@@ -52,6 +53,7 @@ def main_menu():
 # --- LÓGICA DE HISTORIAL ---
 def gestionar_historial(chat_id, user_id):
     ahora = time.time()
+    # Verificamos si el usuario está en la memoria global
     if user_id in db_temporal:
         try:
             data = db_temporal[user_id]
@@ -60,21 +62,20 @@ def gestionar_historial(chat_id, user_id):
             cupos_totales = info.member_limit if info.member_limit else 1
             
             if ahora > data['expira']:
-                del db_temporal[user_id]
                 bot.send_message(chat_id, "❌ <b>Tu último enlace ha caducado por tiempo.</b>", parse_mode="HTML")
             elif cupos_usados >= cupos_totales:
-                texto = f"<b>🚫 ENLACE AGOTADO</b>\n\nEl enlace <code>{data['link']}</code> ya no tiene cupos."
+                texto = f"<b>🚫 ENLACE AGOTADO</b>\n\nEl enlace ya alcanzó su límite."
                 if data.get('tipo') == 'free':
-                    texto += "\n\n<i>💡 Tip: Con los Planes VIP entras sin anuncios y duran más tiempo.</i>"
+                    texto += "\n\n<i>💡 Tip: Con los Planes VIP entras sin anuncios.</i>"
                 bot.send_message(chat_id, texto, parse_mode="HTML")
             else:
                 restante = data['expira'] - ahora
                 horas = int(restante / 3600)
                 bot.send_message(chat_id, f"<b>📂 TU ENLACE ACTUAL:</b>\n\n👉 {data['link']}\n\n👥 Cupos: {cupos_totales - cupos_usados} de {cupos_totales}\n🕒 Vence en: {horas}h", parse_mode="HTML", disable_web_page_preview=True)
         except:
-            bot.send_message(chat_id, "❌ No tienes enlaces activos.")
+            bot.send_message(chat_id, "❌ No se encontró información del enlace.")
     else:
-        bot.send_message(chat_id, "🧐 No tienes enlaces recientes.")
+        bot.send_message(chat_id, "🧐 No tienes enlaces activos.")
 
 # --- COMANDOS ---
 @bot.message_handler(commands=['start'])
@@ -91,16 +92,13 @@ def start(message):
             f"----------------------------------\n"
             f"<b>🆓 OPCIÓN GRATUITA</b>\n"
             f"Completa el acortador para recibir tu link.\n"
-            f"• <b>Vigencia del link:</b> 24 horas.\n"
-            f"• <b>Límite:</b> 1 persona.\n"
             f"👉 <i>Usa el botón 'Acceso Gratis'.</i>\n\n"
             f"----------------------------------\n"
             f"<b>⭐ PASES RÁPIDOS (VIP)</b>\n"
             f"Entra al instante sin anuncios usando <b>Telegram Stars</b>:\n\n"
-            f"🔹 <b>Plan Básico (1⭐):</b> 24h / 1 persona.\n"
-            f"🔹 <b>Plan Estándar (3⭐):</b> 3 días / 4 personas.\n"
-            f"🔹 <b>Plan VIP (8⭐):</b> 15 días / 10 personas.\n\n"
-            f"⚠️ <i>Nota: Los enlaces caducan automáticamente al cumplir su tiempo o límite de personas.</i>\n\n"
+            f"🔹 <b>Básico (1⭐):</b> 24h / 1 uso\n"
+            f"🔹 <b>Estándar (3⭐):</b> 3 días / 4 usos\n"
+            f"🔹 <b>VIP (8⭐):</b> 15 días / 10 usos\n\n"
             f"<b>¿Qué prefieres hacer hoy?</b> 👇"
         )
         bot.send_message(message.chat.id, texto_bienvenida, parse_mode="HTML", reply_markup=main_menu())
@@ -116,20 +114,26 @@ def ver_ventas(message):
 
 # --- FUNCIÓN DE ENTREGA ---
 def entregar_acceso(chat_id, user_id, dias, usos, nombre_plan, tipo="vip"):
+    global db_temporal # 👈 CRUCIAL: Esto hace que el historial funcione
     try:
         segundos = dias * 86400
         invite = bot.create_chat_invite_link(GRUPO_ID, member_limit=usos, expire_date=int(time.time()) + segundos)
-        # Aquí se guarda en la memoria del bot
+        
+        # Guardamos en la memoria global
         db_temporal[user_id] = {'link': invite.invite_link, 'expira': time.time() + segundos, 'tipo': tipo}
         
         texto = (
             f"<b>✅ ¡{nombre_plan} Activado!</b>\n\n"
             f"Tu enlace de unión es:\n👉 {invite.invite_link}\n\n"
-            f"<i>Este link se guardó en tu historial por {dias} día(s). Si alcanzas el límite de {usos} persona(s), deberás generar uno nuevo.</i>"
+            f"<i>Este link se guardó en tu historial por {dias} día(s).</i>"
         )
         bot.send_message(chat_id, texto, parse_mode="HTML", disable_web_page_preview=True)
-    except:
-        bot.send_message(chat_id, "❌ Error: Revisa los permisos del bot en el grupo.")
+
+        # 🔔 Aviso para ti (El Admin)
+        bot.send_message(ADMIN_ID, f"📢 <b>NUEVO ACCESO</b>\n👤 Usuario ID: <code>{user_id}</code>\n🎫 Plan: {nombre_plan}", parse_mode="HTML")
+
+    except Exception as e:
+        bot.send_message(chat_id, f"❌ Error: {e}")
 
 # --- CALLBACKS ---
 @bot.callback_query_handler(func=lambda call: True)
@@ -142,7 +146,7 @@ def callback_query(call):
             try:
                 info = bot.get_chat_invite_link(GRUPO_ID, db_temporal[uid]['link'])
                 if info.member_count < 1 and ahora < db_temporal[uid]['expira']:
-                    bot.answer_callback_query(call.id, "⚠️ Ya tienes un link activo.")
+                    bot.answer_callback_query(call.id, "⚠️ Tienes un link activo.")
                     return bot.send_message(call.message.chat.id, f"<b>⚠️ YA TIENES UN LINK</b>\n\n👉 {db_temporal[uid]['link']}", parse_mode="HTML", disable_web_page_preview=True)
             except: pass
         
@@ -153,7 +157,8 @@ def callback_query(call):
 
     elif call.data.startswith("buy_p"):
         bot.answer_callback_query(call.id)
-        p = {"buy_p1": (1, "Básico"), "buy_p3": (3, "Estándar"), "buy_p8": (8, "VIP")}[call.data]
+        planes = {"buy_p1": (1, "Básico"), "buy_p3": (3, "Estándar"), "buy_p8": (8, "VIP")}
+        p = planes[call.data]
         bot.send_invoice(call.message.chat.id, title=f"Plan {p[1]}", description=f"Acceso VIP {p[1]}", invoice_payload=f"pay_{call.data}", provider_token="", currency="XTR", prices=[types.LabeledPrice(label=p[1], amount=p[0])])
 
     elif call.data == "ver_historial":
@@ -173,18 +178,9 @@ def checkout(pre_checkout_query):
 def got_payment(message):
     payload = message.successful_payment.invoice_payload
     uid = message.from_user.id
-    
-    # PARCHE: Se asegura de pasar el tipo="vip" para que el historial lo reconozca
-    if payload == "pay_buy_p1":
-        stats["estrellas_ganadas"] += 1
-        entregar_acceso(message.chat.id, uid, 1, 1, "Plan Básico", "vip")
-    elif payload == "pay_buy_p3":
-        stats["estrellas_ganadas"] += 3
-        entregar_acceso(message.chat.id, uid, 3, 4, "Plan Estándar", "vip")
-    elif payload == "pay_buy_p8":
-        stats["estrellas_ganadas"] += 8
-        entregar_acceso(message.chat.id, uid, 15, 10, "Plan VIP", "vip")
-    
+    if "p1" in payload: stats["estrellas_ganadas"] += 1; entregar_acceso(message.chat.id, uid, 1, 1, "Plan Básico", "vip")
+    elif "p3" in payload: stats["estrellas_ganadas"] += 3; entregar_acceso(message.chat.id, uid, 3, 4, "Plan Estándar", "vip")
+    elif "p8" in payload: stats["estrellas_ganadas"] += 8; entregar_acceso(message.chat.id, uid, 15, 10, "Plan VIP", "vip")
     stats["ventas_totales"] += 1
 
 if __name__ == "__main__":
