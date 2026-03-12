@@ -85,7 +85,6 @@ def start(message):
     if len(params) > 1 and params[1] == 'verificado':
         entregar_acceso(message.chat.id, user_id, 1, 1, "Acceso Gratuito", "free")
     else:
-        # MENSAJE DE BIENVENIDA RESTAURADO
         texto_bienvenida = (
             f"<b>🎬 ¡BIENVENIDO A CINITO VIP!</b>\n\n"
             f"Hola <b>{message.from_user.first_name}</b>, elige cómo obtener tu acceso:\n\n"
@@ -120,6 +119,7 @@ def entregar_acceso(chat_id, user_id, dias, usos, nombre_plan, tipo="vip"):
     try:
         segundos = dias * 86400
         invite = bot.create_chat_invite_link(GRUPO_ID, member_limit=usos, expire_date=int(time.time()) + segundos)
+        # Aquí se guarda en la memoria del bot
         db_temporal[user_id] = {'link': invite.invite_link, 'expira': time.time() + segundos, 'tipo': tipo}
         
         texto = (
@@ -173,9 +173,18 @@ def checkout(pre_checkout_query):
 def got_payment(message):
     payload = message.successful_payment.invoice_payload
     uid = message.from_user.id
-    if "p1" in payload: stats["estrellas_ganadas"] += 1; entregar_acceso(message.chat.id, uid, 1, 1, "Plan Básico")
-    elif "p3" in payload: stats["estrellas_ganadas"] += 3; entregar_acceso(message.chat.id, uid, 3, 4, "Plan Estándar")
-    elif "p8" in payload: stats["estrellas_ganadas"] += 8; entregar_acceso(message.chat.id, uid, 15, 10, "Plan VIP")
+    
+    # PARCHE: Se asegura de pasar el tipo="vip" para que el historial lo reconozca
+    if payload == "pay_buy_p1":
+        stats["estrellas_ganadas"] += 1
+        entregar_acceso(message.chat.id, uid, 1, 1, "Plan Básico", "vip")
+    elif payload == "pay_buy_p3":
+        stats["estrellas_ganadas"] += 3
+        entregar_acceso(message.chat.id, uid, 3, 4, "Plan Estándar", "vip")
+    elif payload == "pay_buy_p8":
+        stats["estrellas_ganadas"] += 8
+        entregar_acceso(message.chat.id, uid, 15, 10, "Plan VIP", "vip")
+    
     stats["ventas_totales"] += 1
 
 if __name__ == "__main__":
