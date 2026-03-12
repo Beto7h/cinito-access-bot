@@ -15,7 +15,7 @@ CANAL_TUTORIAL = os.getenv('CANAL_TUTORIAL', 'https://t.me/')
 bot = telebot.TeleBot(TOKEN)
 db_temporal = {} 
 
-# --- SERVIDOR KOYEB ---
+# --- SERVIDOR PARA KOYEB ---
 class MockServer(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -42,7 +42,7 @@ def main_menu():
     markup.add(btn_generar, btn_historial, btn_help)
     return markup
 
-# --- START ---
+# --- COMANDOS ---
 @bot.message_handler(commands=['start'])
 def start(message):
     user_id = message.from_user.id
@@ -54,14 +54,14 @@ def start(message):
                 invite = bot.create_chat_invite_link(GRUPO_ID, member_limit=1, expire_date=int(time.time()) + 86400)
                 db_temporal[user_id] = {'link': invite.invite_link, 'expira': time.time() + 86400}
             except:
-                return bot.send_message(message.chat.id, "❌ Error: Hazme admin.")
+                return bot.send_message(message.chat.id, "❌ Error: Hazme admin del grupo.")
 
         data = db_temporal[user_id]
         texto = (
             f"<b>✅ ¡Acceso verificado!</b>\n\n"
             f"Tu enlace de unión es el siguiente:\n"
             f"👉 {data['link']}\n\n"
-            f"<i>Link guardado en tu historial por 24h. Si sales del grupo, deberás generar uno nuevo.</i>"
+            f"<i>Este link se guardó en tu historial por 24h. Si sales del grupo, deberás generar uno nuevo.</i>"
         )
         bot.send_message(message.chat.id, texto, parse_mode="HTML", reply_markup=main_menu(), disable_web_page_preview=True)
     
@@ -75,43 +75,39 @@ def callback_query(call):
     ahora = time.time()
     
     if call.data == "intentar_generar":
-        # REVISIÓN INMEDIATA
         if user_id in db_temporal:
             data = db_temporal[user_id]
             try:
-                # Consultamos a Telegram el estado real del link
                 invite_info = bot.get_chat_invite_link(GRUPO_ID, data['link'])
                 
-                # Si el link NO ha sido usado (member_count es 0) y NO ha expirado
+                # BLOQUEO SI EL LINK NO SE HA USADO
                 if invite_info.member_count < 1 and ahora < data['expira']:
-                    bot.answer_callback_query(call.id, "⚠️ Ya tienes un acceso pendiente.")
+                    bot.answer_callback_query(call.id, "⚠️ Tienes un acceso pendiente.")
                     texto_bloqueo = (
                         f"<b>⚠️ ACCESO PENDIENTE</b>\n\n"
-                        f"Detectamos que ya tienes un enlace activo que no has usado.\n\n"
-                        f"🔗 Tu enlace:\n👉 {data['link']}\n\n"
-                        f"<i>Para generar uno nuevo, primero debes usar este o esperar a que expire.</i>"
+                        f"Tienes un enlace pendiente de usar y no puedes generar más links hasta que te unas al grupo.\n\n"
+                        f"🔗 <b>Tu enlace actual:</b>\n👉 {data['link']}"
                     )
                     return bot.send_message(call.message.chat.id, texto_bloqueo, parse_mode="HTML", disable_web_page_preview=True)
                 else:
-                    # Si ya se usó, lo borramos para que pueda pagar de nuevo
+                    # Si ya entró (member_count >= 1), borramos para permitir nuevo pago
                     del db_temporal[user_id]
             except:
-                # Si el link falló o fue borrado, liberamos el espacio
                 del db_temporal[user_id]
 
-        # Si no hay link o ya se usó, enviamos al acortador
+        # SI PASA EL FILTRO, MANDA AL ACORTADOR
         bot.answer_callback_query(call.id)
         url_acortada = f"https://gplinks.in/st?api={API_KEY_GPLINKS}&url=https://t.me/{BOT_USERNAME}?start=verificado"
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("🚀 Ir al Acortador", url=url_acortada))
-        bot.send_message(call.message.chat.id, "<b>🔓 ¡Acceso Disponible!</b>\n\nCompleta el acortador para entrar:", parse_mode="HTML", reply_markup=markup)
+        bot.send_message(call.message.chat.id, "<b>🔓 ¡Acceso Disponible!</b>\n\nCompleta el acortador para obtener tu enlace:", parse_mode="HTML", reply_markup=markup)
 
     elif call.data == "ver_historial":
         if user_id in db_temporal and ahora < db_temporal[user_id]['expira']:
             bot.answer_callback_query(call.id)
             bot.send_message(
                 call.message.chat.id, 
-                f"<b>📂 HISTORIAL:</b>\n\n🔗 Link: {db_temporal[user_id]['link']}",
+                f"<b>📂 HISTORIAL DE ENLACES:</b>\n\n🔗 Link: {db_temporal[user_id]['link']}",
                 parse_mode="HTML",
                 disable_web_page_preview=True
             )
